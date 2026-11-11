@@ -1,78 +1,143 @@
-# Abbis_Lite
-# ABBIS-Lite: Blood Redistribution
+# ABBIS-Lite: finds blood that is about to expire in one place and is needed in another
 
-Terumo BCT Africa Hackathon 2026 · Challenge area: Redistribution
+Terumo BCT Africa Hackathon 2026 · Challenge area: **Redistribution**
+
+> **Data notice:** the organisers' one-year starter dataset is synthetic and modelled on Kenya. No real donor, patient or facility records are used anywhere. Findings are not real hospital performance.
 
 ## The problem
 
-Blood service coordinators need to spot a likely shortfall at one facility while suitable stock may be available elsewhere. Messy facility labels, stale movement records, expiry, screening status and cold-chain exposure make a simple stock total unsafe to act on.
+**User:** a regional blood-service coordinator who must decide where stock should move each week.
 
-This prototype uses the organisers' synthetic Kenya-modelled starter dataset, with an inventory snapshot through 31 October 2026. It is not evidence about real facilities.
+**Today:** records are imperfect, so one trusted view of stock is hard to get. A hospital can run short of a blood group while a regional or satellite centre holds the same group close to expiry.
 
-## What we building
+**What the data shows (starter dataset):**
+- 8,620 of 37,147 RBC and whole-blood records (23.2%) were expired or discarded after temperature exposure.
+- 87.1% of 17,430 hospital requests were fully fulfilled, so 12.9% were not.
+- 1,046 of 35,181 transfers have no receipt confirmation.
+- 4,607 valid temperature readings are outside 2–6°C.
+- 506 donor records have no blood group, and 452 extra donor rows share a composite identity.
 
-- A repeatable profile and cleaning pipeline; unit-level expiry-aware stock filtering; exact component and blood-group source matching; short-horizon demand estimates with a rolling comparison against a 7-day baseline; FEFO-ranked suggestions with route time and reasons; and a local Accept / Change / Reject review log.
-- live blood-service integration, dispatch, clinical authorization, multi-user authentication, or synchronization between devices. The audit is a local demo log, not authenticated or tamper-proof.
+Full profile: [`docs/DATA_QUALITY_FINDINGS.md`](docs/DATA_QUALITY_FINDINGS.md).
 
+## What we built
 
+- **What works now:** data profiling and quality flags, safe analytical views, stock reconciliation (final snapshot vs unit ledger: 8,666 units on both, difference zero), a Streamlit dashboard, an expiry-aware redistribution matcher (18 candidate moves in the supplied snapshot), rolling forecast comparison with automatic fallback, SMS drafts (max 160 characters), Accept / Change / Reject review and a local audit log. 8 automated tests pass.
+- **What is mocked or not finished:** no live blood-service integration, no real dispatch (Accept records a decision, it does not move stock), no SMS sending, no user login or roles, no tamper-proof audit, no offline sync between devices. See "Known limits".
+
+Demo video (3 minutes or less): **[PASTE VIDEO LINK]**
+Live demo: none (runs locally in minutes, see below) · Test log-in: not needed
 
 ## How to run it
 
-From the repository root, using Python 3.10 or newer:
+Needs Python 3.11 or newer. About 5 minutes on a normal laptop.
+
+```bash
+git clone https://github.com/2025bcs068-prog/Abbis_Lite.git
+cd Abbis_Lite
+chmod +x run.sh
+./run.sh
+```
+
+`run.sh` creates a virtual environment, installs the packages, profiles the raw data, runs the forecast comparison and starts the app. Open **http://localhost:8501**.
+
+Manual steps (also for Windows):
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 python -m pip install -r requirements.txt
 python -m scripts.prepare_data
 python -m scripts.evaluate_forecast
 streamlit run app.py
 ```
 
-The last command prints a local URL. The default review scenario is an A+ red-cell shortage at HSP-018. Review choices are stored in a local SQLite file under `data/local/` and are not pushed or synchronized.
+Run the tests: `python -m pytest -q`
+
+**Suggested 3-minute path for a judge:** Overview → Data quality → Redistribution planner (open a proposal, press Reject or Accept) → Demand forecast → Decision audit.
 
 ## Architecture
 
- The workflow reads the synthetic source tables, flags data issues, applies hard stock-safety filters, ranks possible donor units, and records a human decision locally. It does not dispatch blood or make a transfusion decision.
+```mermaid
+flowchart TD
+  A[Starter CSVs, read only] --> B[Validation and safe analytical views]
+  B --> C[Stock reconciliation and demand history]
+  C --> D[Expiry-aware redistribution matcher]
+  C --> E[Forecast vs 7-day baseline]
+  D --> F{Human review}
+  F -->|Accept| G[Local SQLite audit log]
+  F -->|Change| G
+  F -->|Reject| G
+  H[SMS draft] --> F
+  I[Streamlit interface] --> B
+  I --> D
+  I --> E
+  I --> G
+```
+
+- `app.py`: Streamlit screens.
+- `abbis/engine.py`: loading, quality checks, matcher, forecast evaluation, audit helpers.
+- `scripts/`: data preparation and forecast evaluation.
+- `data/raw/`: original data, never modified. `data/local/`: local decision log.
+
+**Where it sits in a wider system:** ABBIS-Lite is a decision-support layer. It reads the same kinds of tables a blood-bank system holds (facilities, units, requests, transfers, temperature logs) and writes only a review decision. A real deployment would read from the blood-bank system and send approved decisions back to it. No standards (FHIR, ISBT 128, DHIS2) are implemented yet; blood group and component fields are the natural place to map ISBT 128 codes. More detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## AI and data
 
-- What the AI or data feature does: estimate seven-day demand from the trailing 28-day mean when that method beats the simple baseline on the supplied rolling backtest, then identify eligible exact-group units that can be considered for redistribution.
-- Baseline we compared against: a trailing 7-day mean demand estimate.
-- Result:the comparison uses the synthetic request history and a 7-day forecast horizon.
-- How a user sees the reason for a recommendation: eligibility checks, source surplus, recipient forecast, route time, and expiry date are shown.
-- Who approves it (Accept / Change / Reject): a human reviewer chooses Accept, Change, or Reject. Acceptance records a decision only; it does not move inventory.
-- What happens if the AI is wrong or offline: the measured baseline and last available stock snapshot remain visible; if recent data is unavailable, the app makes no forecast-driven suggestion. The local prototype can record a review without an external connection.
+- **What the feature does:** estimates 7-day demand per facility, blood group and component, then checks whether stock elsewhere can safely cover a projected shortfall.
+- **Baseline we compared against:** 7-day mean.
+- **Result:** baseline WAPE **1.016** vs best candidate (28-day moving average) WAPE **0.953**, on HSP-018 · A+ · RBC, 8 rolling-origin folds, 7-day horizon, over the supplied year. The weekly seasonal naive method scored 1.189.
+
+| Method | WAPE | MAE |
+|---|---:|---:|
+| 7-day mean (baseline) | 1.016 | 1.923 |
+| 28-day moving average | 0.953 | 1.804 |
+| Weekly seasonal naive | 1.189 | 2.250 |
+
+  The candidate is about 6.2% better, but it is still above our 0.50 confidence limit. So ABBIS does **not** present it as reliable and uses the 7-day baseline. This is a deliberate safeguard.
+- **How a user sees the reason:** each proposal shows source, destination, blood group, component, projected demand, safe stock, reserve kept at the source, expiry, route time and cold-chain checks.
+- **Who approves (Accept / Change / Reject):** the coordinator. A reason is required for Change or Reject. Each decision is saved with reviewer, quantity, reason and time. One decision per recommendation.
+- **If the AI is wrong or offline:** the matcher is rule-based and the forecast falls back to the baseline when accuracy is poor. The app makes no internet calls. Nothing is dispatched automatically, so a wrong proposal is stopped by the reviewer.
+
+**Safety rules in the matcher:** exact blood-group and component match only; units must be tested non-reactive and in stock; temperature-exposed units are excluded; the source needs adequate cold-chain readiness; the destination needs fridge backup or at least 90% grid reliability; the route must be 12 typical hours or less; at least 2 days of shelf life must remain on arrival.
 
 ## Data
 
-The source CSVs and dictionary are stored in [`data/raw/`](data/raw/). They are synthetic and were supplied in the hackathon Applicant's Kit. No real donor, patient, or facility records are used. Raw files are preserved; repeatable flags and normalized outputs are written separately under `data/processed/`.
+Starter dataset tables used: `facilities`, `donors`, `donations`, `units`, `requests`, `transfers`, `routes`, `daily_stock`, `temperature_logs`, `power_outages`. Dictionary: [`data/raw/DATA_DICTIONARY.md`](data/raw/DATA_DICTIONARY.md).
+
+No other data is used. No real donor, patient or facility data.
+
+Handling of imperfect data: unknown blood groups are treated as missing, never guessed. Sentinel temperatures (-99, 99.9, 0.0) are masked in the analysis view only. Transfers without `received_at` stay "pending confirmation". Raw facility labels are kept next to canonical facility IDs.
 
 ## African conditions
 
-This is a small local prototype designed to keep the data and review workflow available on one laptop. It does not yet synchronize offline decisions across devices or support SMS/USSD. Facility names and connectivity fields remain configurable data rather than code constants.
+- **Weak connectivity:** runs fully on one laptop with a local SQLite file, and needs no internet after install. SMS drafts are short (160 characters) so staff can send them from any phone.
+- **Weak power:** the matcher checks destination fridge backup and grid reliability before it proposes a move, and checks source cold-chain readiness.
+- **Distance and roads:** route time and shelf life on arrival are checked for every proposal.
+- **Another site or country:** replace the CSVs in `data/raw/` with files that have the same columns as the data dictionary, then run `python -m scripts.prepare_data`.
+- **Not done yet:** local-language screens and offline sync between devices.
 
 ## AI tools we used
 
-Using openAi , claude ,Gemini
+- **ChatGPT:** data profiling, code drafting, debugging, test design, documentation.
+- **Claude:** project planning and design discussion; restructuring this README to the organisers' template and checking that the project installs, passes its tests and starts.
+- **Gemini:** **[WRITE THE EXACT TASKS HERE]**
+
+Everyone on the team should be able to explain the code. Open-source libraries: Streamlit, pandas, NumPy, Plotly, pytest.
 
 ## Team
 
-| Name | Role | Country |
-|------|------|---------|
-| Biyimbwa Elijah Simwogerere | Team lead, backend, architecture | Uganda |
-| Kissa Keith Ndiema | Backend, AI/data | Uganda |
-| Okori Sadrach | AI/data | Uganda |
-| Tusiime Betty | Frontend | Uganda |
-| Kisembo Stephen | AI/data, frontend | Uganda |
-
-
+| Name | Role | Country | Presenting Friday (in person / online) |
+|------|------|---------|-----------------------------------------|
+| Biyimbwa Elijah Simwogerere | Team lead, backend, architecture | Uganda | [in person / online] |
+| Kissa Keith Ndiema | Backend, AI/data | Uganda | [in person / online] |
+| Okori Sadrach | AI/data | Uganda | [in person / online] |
+| Tusiime Betty | Frontend | Uganda | [in person / online] |
+| Kisembo Stephen | AI/data, frontend | Uganda | [in person / online] |
 
 ## Known limits and next steps
 
-- The inputs are a synthetic year ending 31 October 2026; they are not live stock feeds.
-- Exact blood-group matching is the only matching mode. Unknown groups and unconfirmed movements are excluded from unit suggestions.
-- The starter dataset has no separate quarantine field; the prototype permits only the explicit `in_stock` status and requires an explicit non-reactive source screen.
-- The recommendation is decision support, not authorization to move or transfuse blood.
-- The local audit log records the name entered by the reviewer; it is not authenticated identity or a tamper-proof audit service.
-- Add a real two-role authorization model, cross-device offline sync, and expert review before any operational use.
+- Forecast accuracy is weak on sparse series (WAPE above 0.50), so the baseline is used. Next: pool similar facilities and add more history.
+- Acceptance records a decision only. Next: connect to a blood-bank system so an approved move creates a real transfer.
+- No login, roles or tamper-proof audit. Next: add authentication and a signed audit trail.
+- SMS is drafted, not sent. Next: connect an SMS gateway.
+- Proposals are decision support, not a clinical compatibility check or a dispatch order. ABBIS-Lite is a hackathon prototype and must not be used to authorise transfusion or dispatch blood.
