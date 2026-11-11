@@ -24,7 +24,7 @@ Full profile: [`docs/DATA_QUALITY_FINDINGS.md`](docs/DATA_QUALITY_FINDINGS.md).
 - **What works now:** data profiling and quality flags, safe analytical views, stock reconciliation (final snapshot vs unit ledger: 8,666 units on both, difference zero), a Streamlit dashboard, an expiry-aware redistribution matcher (18 candidate moves in the supplied snapshot), rolling forecast comparison with automatic fallback, SMS drafts (max 160 characters), Accept / Change / Reject review and a local audit log. 8 automated tests pass.
 - **What is mocked or not finished:** no live blood-service integration, no real dispatch (Accept records a decision, it does not move stock), no SMS sending, no user login or roles, no tamper-proof audit, no offline sync between devices. See "Known limits".
 
-Demo video (3 minutes or less): **[PASTE VIDEO LINK]**
+Demo video : **[PASTE VIDEO LINK]**
 Live demo: none (runs locally in minutes, see below) · Test log-in: not needed
 
 ## How to run it
@@ -120,19 +120,17 @@ Handling of imperfect data: unknown blood groups are treated as missing, never g
 
 - **ChatGPT:** data profiling, code drafting, debugging, test design, documentation.
 - **Claude:** project planning and design discussion; restructuring this README to the organisers' template and checking that the project installs, passes its tests and starts.
-- **Gemini:** **[WRITE THE EXACT TASKS HERE]**
 
-Everyone on the team should be able to explain the code. Open-source libraries: Streamlit, pandas, NumPy, Plotly, pytest.
 
 ## Team
 
 | Name | Role | Country | Presenting Friday (in person / online) |
 |------|------|---------|-----------------------------------------|
-| Biyimbwa Elijah Simwogerere | Team lead, backend, architecture | Uganda | [in person / online] |
-| Kissa Keith Ndiema | Backend, AI/data | Uganda | [in person / online] |
-| Okori Sadrach | AI/data | Uganda | [in person / online] |
-| Tusiime Betty | Frontend | Uganda | [in person / online] |
-| Kisembo Stephen | AI/data, frontend | Uganda | [in person / online] |
+| Biyimbwa Elijah Simwogerere | Team lead, backend, architecture | Uganda | [online] |
+| Kissa Keith Ndiema | Backend, AI/data | Uganda | [online] |
+| Okori Sadrach | AI/data | Uganda | [ online] |
+| Tusiime Betty | Frontend | Uganda | [online] |
+| Kisembo Stephen | AI/data, frontend | Uganda | [online] |
 
 ## Known limits and next steps
 
